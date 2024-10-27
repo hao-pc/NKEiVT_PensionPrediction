@@ -6,6 +6,9 @@ from tkinter import ttk
 import csv
 import customtkinter as ctk
 import pandas as pd
+import shap
+import numpy as np
+import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 import pickle
 
@@ -27,14 +30,42 @@ def open_file():
     if file_path:
         process_file(file_path)
 
-# Функция обработки данных и создания submission.csv
+
+# Функция для отображения важности признаков
+def plot_feature_importance():
+    # Получение весов первого слоя
+    weights, _ = model.layers[0].get_weights()
+
+    # Усреднение весов по нейронам первого слоя, чтобы получить важность каждого входного признака
+    feature_importance = np.mean(np.abs(weights), axis=1)
+
+    # Имена признаков
+    feature_names = [
+        'pnsn_age', 'cprtn_prd_d', 'rgn', 'gndr', 'assgn_npo', 'assgn_ops', 'prvs_npf'
+    ]
+
+    # Построение графика
+    plt.figure(figsize=(10, 6))
+    plt.barh(feature_names, feature_importance, color='skyblue')
+    plt.xlabel("Важность")
+    plt.ylabel("Признак")
+    plt.title("Интерпретируемость модели (на что модель смотрит в первую очередь при принятии решения)")
+    plt.savefig("feature_importance.png")
+    plt.show()
+
+
+
+# Обновляем функцию process_file для вызова интерпретируемости
 def process_file(file_path):
     df = pd.read_csv(file_path, sep=';', encoding='windows-1251')
-
     finally_df = df.iloc[:, 2:3].copy()
 
     # Предобработка данных для модели
     x = preprocess_data(df)
+
+    # Визуализируем важность признаков
+    plot_feature_importance()
+
     # Получение предсказаний и сохранение в файл
     save_predictions(x, finally_df)
 
@@ -70,12 +101,14 @@ def preprocess_data(df):
     df['cprtn_prd_d'] = cprtn_scaler.transform(df[['cprtn_prd_d']])
     df['rgn'] = rgn_encoder.transform(df['rgn'])
     df['rgn'] = rgn_scaler.transform(df[['rgn']])
-    return df.drop(columns=['erly_pnsn_flg'])
+    if 'erly_pnsn_flg' in df.columns:
+        df = df.drop(columns=['erly_pnsn_flg'])
+    return df
 
 # Функция для предсказания и сохранения в файл
 def save_predictions(x, df):
     predictions = model.predict(x)
-    erly_pnsn_flg = [1 if pred >= 0.9 else 0 for pred in predictions]
+    erly_pnsn_flg = [0 if pred >= 0.9 else 1 for pred in predictions]
     df['erly_pnsn_flg'] = erly_pnsn_flg
     df.to_csv('submission.csv', index=False)
     display_csv_content('submission.csv')
